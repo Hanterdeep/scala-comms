@@ -1,9 +1,10 @@
 package com.example.comm.client
 
 import akka.actor.typed.ActorSystem
+import akka.cluster.typed.Cluster
 import scala.util.Try
 import java.net.{InetSocketAddress, Socket}
-import scala.concurrent.duration._
+import java.util.concurrent.ConcurrentHashMap
 
 trait ConnectionMethod {
   def name: String
@@ -14,6 +15,7 @@ trait ConnectionMethod {
 
 object ConnectionStrategy {
   private val methods = scala.collection.mutable.ListBuffer[ConnectionMethod]()
+  private val measurements = new ConcurrentHashMap[String, Long]()
 
   def register(method: ConnectionMethod): Unit = {
     methods += method
@@ -24,19 +26,31 @@ object ConnectionStrategy {
 
   def registered: Seq[ConnectionMethod] = methods.toSeq
 
-  /** Select best connection: lowest RTT, then protocol priority. */
   def bestConnection(candidates: Seq[(String, Int)]): Option[(ConnectionMethod, String, Int, Long)] = {
     val scored = for {
       (host, port) <- candidates
       method <- methods
       rtt <- method.probe(host, port)
-    } yield (method, host, port, rtt)
+    } yield {
+      measurements.put(s"${method.name}:$host:$port", rtt)
+      (method, host, port, rtt)
+    }
     if (scored.isEmpty) None
     else Some(scored.minBy { case (m, _, _, rtt) => (rtt, m.priority) })
   }
+
+  def membersFromCluster()(implicit system: ActorSystem[_]): Seq[(String, Int)] = {
+    val cluster = Cluster(system)
+    cluster.state.members.toSeq.flatMap { m =>
+      val addr = m.address
+      for {
+        host <- addr.host
+        port <- addr.port
+      } yield (host, port)
+    }
+  }
 }
 
-/** TCP connect-time probe (real RTT). */
 object TcpMethod extends ConnectionMethod {
   def name = "tcp"
   def priority = 2
@@ -54,12 +68,11 @@ object TcpMethod extends ConnectionMethod {
     system.log.info(s"Connecting via TCP to $host:$port")
 }
 
-/** UDP probe via a short TCP fallback or timeout-based estimate. */
 object UdpMethod extends ConnectionMethod {
   def name = "udp"
   def priority = 1
   def probe(host: String, port: Int): Option[Long] =
-    TcpMethod.probe(host, port).map(_ + 2)
+    TcpMethod.probe(host, port).map(_ + 1)
 
   def connect(host: String, port: Int, system: ActorSystem[_]): Unit =
     system.log.info(s"Connecting via UDP to $host:$port")
@@ -69,7 +82,7 @@ object WebSocketMethod extends ConnectionMethod {
   def name = "websocket"
   def priority = 3
   def probe(host: String, port: Int): Option[Long] =
-    TcpMethod.probe(host, port).map(_ + 10)
+    TcpMethod.probe(host, port).map(_ + 5)
 
   def connect(host: String, port: Int, system: ActorSystem[_]): Unit =
     system.log.info(s"Connecting via WebSocket to $host:$port")
