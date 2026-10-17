@@ -1,13 +1,13 @@
 package com.example.comm.gateway
 
-import akka.actor.typed.{ActorRef, ActorSystem, Behavior}
+import akka.actor.typed.{ActorRef, Behavior}
 import akka.actor.typed.scaladsl.Behaviors
 import akka.io.Udp
 import akka.util.ByteString
 import com.example.comm.protocol.{Envelope, Protocol}
 import java.net.InetSocketAddress
 
-object UdpGateway:
+object UdpGateway {
   sealed trait Command
   case class Bind(port: Int) extends Command
   case class Send(to: InetSocketAddress, data: Array[Byte]) extends Command
@@ -41,3 +41,4 @@ object UdpGateway:
         case _ => Behaviors.same
       }
     }
+}

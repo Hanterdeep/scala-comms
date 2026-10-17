@@ -4,19 +4,19 @@ import akka.actor.typed.{ActorRef, ActorSystem, Behavior}
 import akka.actor.typed.scaladsl.Behaviors
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.ws.{Message, TextMessage}
-import akka.http.scaladsl.server.Directives.*
-import akka.stream.scaladsl.{Flow, Sink, Source}
+import akka.http.scaladsl.server.Directives._
+import akka.stream.scaladsl.Flow
 import com.example.comm.protocol.{Envelope, Protocol}
 import scala.concurrent.ExecutionContext
 
-object WebSocketGateway:
+object WebSocketGateway {
   sealed trait Command
   case class Bind(host: String, port: Int) extends Command
   case class Received(env: Envelope, replyTo: ActorRef[Message]) extends Command
 
-  def apply(handler: ActorRef[Received])(using system: ActorSystem[_]): Behavior[Command] =
+  def apply(handler: ActorRef[Received])(implicit system: ActorSystem[_]): Behavior[Command] =
     Behaviors.setup { ctx =>
-      given ExecutionContext = system.executionContext
+      implicit val ec: ExecutionContext = system.executionContext
       Behaviors.receiveMessage {
         case Bind(host, port) =>
           val route = path("ws") {
@@ -33,8 +33,9 @@ object WebSocketGateway:
     Flow[Message].map {
       case TextMessage.Strict(text) =>
         Protocol.deserialize(text.getBytes).foreach { env =>
-          // In real impl, get reply actor from context
+          // real impl would forward
         }
         TextMessage("ok")
       case _ => TextMessage("unsupported")
     }
+}
