@@ -1,0 +1,46 @@
+name: Multi-VM NAT integration
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  multivm-nat:
+    name: Multi-VM with NAT obstacles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Build snapshot jars
+        run: |
+          export APP_VERSION="0.1.0-pr${{ github.event.pull_request.number || 'local' }}-SNAPSHOT"
+          sbt -batch assembly
+          sbt -batch "clientAssembly"
+          mkdir -p target
+          cp target/scala-2.13/scala-communicator-server-*.jar target/ || true
+          cp target/scala-communicator-client-*.jar target/ || true
+
+      - name: Run multi-VM NAT test
+        run: |
+          chmod +x scripts/multivm-nat-test.sh
+          ./scripts/multivm-nat-test.sh
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multivm-nat-logs
+          path: |
+            target/*.jar
+          retention-days: 3

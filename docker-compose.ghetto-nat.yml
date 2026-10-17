@@ -1,0 +1,114 @@
+# Ghetto NAT test — bad ISP / CGNAT style
+#
+# Topology (double NAT):
+#   [server] ---- public (172.40.0.0/16)
+#                    |
+#              [outer-nat]   (CGNAT-style, short UDP timeout, random ports)
+#                    |
+#                 mid (10.50.0.0/24)
+#                    |
+#              [inner-nat]   (home router, also MASQUERADE)
+#                    |
+#               private (10.60.0.0/24)
+#                    |
+#               [client]
+#
+# Obstacles:
+#   - Double NAT (outer + inner)
+#   - UDP conntrack timeout = 15s (aggressive)
+#   - MASQUERADE --random (port changes more often)
+#   - 100ms latency + 40ms jitter + 10% loss on outer
+#   - UDP rate limit
+
+services:
+  server:
+    build: .
+    environment:
+      ROLE: server
+    networks:
+      public:
+        ipv4_address: 172.40.0.10
+    ports:
+      - "2551:2551"
+    command: ["java", "-jar", "/app/server.jar"]
+
+  outer-nat:
+    image: alpine:3.19
+    cap_add: [NET_ADMIN]
+    command: >
+      sh -c "
+        apk add --no-cache iptables iproute2 &&
+        echo 1 > /proc/sys/net/ipv4/ip_forward &&
+        echo 15 > /proc/sys/net/netfilter/nf_conntrack_udp_timeout || true &&
+        echo 15 > /proc/sys/net/netfilter/nf_conntrack_udp_timeout_stream || true &&
+        iptables -t nat -A POSTROUTING -s 10.50.0.0/24 -j MASQUERADE --random &&
+        iptables -A FORWARD -s 10.50.0.0/24 -j ACCEPT &&
+        iptables -A FORWARD -d 10.50.0.0/24 -m state --state RELATED,ESTABLISHED -j ACCEPT &&
+        iptables -A FORWARD -p udp -m limit --limit 20/s --limit-burst 30 -j ACCEPT || true &&
+        PUBIF=$$(ip -o addr show | awk '/172.40/ {print $$2}') &&
+        [ -n \"$$PUBIF\" ] && tc qdisc add dev $$PUBIF root netem delay 100ms 40ms loss 10% || true &&
+        sleep infinity
+      "
+    networks:
+      public:
+        ipv4_address: 172.40.0.100
+      mid:
+        ipv4_address: 10.50.0.2
+
+  inner-nat:
+    image: alpine:3.19
+    cap_add: [NET_ADMIN]
+    command: >
+      sh -c "
+        apk add --no-cache iptables iproute2 &&
+        echo 1 > /proc/sys/net/ipv4/ip_forward &&
+        echo 20 > /proc/sys/net/netfilter/nf_conntrack_udp_timeout || true &&
+        iptables -t nat -A POSTROUTING -s 10.60.0.0/24 -j MASQUERADE --random &&
+        iptables -A FORWARD -s 10.60.0.0/24 -j ACCEPT &&
+        iptables -A FORWARD -d 10.60.0.0/24 -m state --state RELATED,ESTABLISHED -j ACCEPT &&
+        ip route del default || true &&
+        ip route add default via 10.50.0.2 &&
+        sleep infinity
+      "
+    networks:
+      mid:
+        ipv4_address: 10.50.0.10
+      private:
+        ipv4_address: 10.60.0.2
+
+  client:
+    build: .
+    cap_add: [NET_ADMIN]
+    environment:
+      ROLE: client
+      SEED_HOST: 172.40.0.10
+      SEED_PORT: "2551"
+      MY_PORT: "2555"
+    networks:
+      private:
+        ipv4_address: 10.60.0.10
+    depends_on: [inner-nat, outer-nat]
+    command:
+      - sh
+      - -c
+      - |
+        ip route del default || true
+        ip route add default via 10.60.0.2
+        exec java -cp /app/client.jar com.example.comm.client.ClientApp 172.40.0.10 2551 2555
+
+networks:
+  public:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.40.0.0/16
+  mid:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.50.0.0/24
+  private:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.60.0.0/24
