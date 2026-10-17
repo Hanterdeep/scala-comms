@@ -1,0 +1,48 @@
+services:
+  server:
+    build: .
+    environment:
+      ROLE: server
+    ports:
+      - "2551:2551"
+      - "9000:9000/udp"
+      - "9001:9001"
+      - "9002:9002"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/2551"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  client-a:
+    build: .
+    environment:
+      ROLE: client
+      SEED_HOST: server
+      SEED_PORT: "2551"
+      MY_PORT: "2552"
+    depends_on:
+      server:
+        condition: service_healthy
+
+  client-b:
+    build: .
+    environment:
+      ROLE: client
+      SEED_HOST: server
+      SEED_PORT: "2551"
+      MY_PORT: "2553"
+    depends_on:
+      server:
+        condition: service_healthy
+
+  client-c:
+    build: .
+    environment:
+      ROLE: client
+      SEED_HOST: server
+      SEED_PORT: "2551"
+      MY_PORT: "2554"
+    depends_on:
+      server:
+        condition: service_healthy
