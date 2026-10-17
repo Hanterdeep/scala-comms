@@ -5,15 +5,15 @@ import java.sql.{Connection, DriverManager}
 import java.util.UUID
 
 case class StoredMessage(
-  id: String,
-  chatId: String,
-  senderId: String,
-  encryptedPayload: Array[Byte],
-  prevHash: String,
-  contentHash: String,
-  timestamp: Long,
-  isImage: Boolean = false,
-  imageContentHash: Option[String] = None
+    id: String,
+    chatId: String,
+    senderId: String,
+    encryptedPayload: Array[Byte],
+    prevHash: String,
+    contentHash: String,
+    timestamp: Long,
+    isImage: Boolean = false,
+    imageContentHash: Option[String] = None
 )
 
 object LocalStore {
@@ -32,7 +32,8 @@ class LocalStore(dbPath: String = "communicator.db") {
 
   private def withConn[T](f: Connection => T): T = {
     val conn = DriverManager.getConnection(url)
-    try f(conn) finally conn.close()
+    try f(conn)
+    finally conn.close()
   }
 
   def init(): Unit = withConn { conn =>
@@ -60,7 +61,13 @@ class LocalStore(dbPath: String = "communicator.db") {
     stmt.execute("CREATE INDEX IF NOT EXISTS idx_chat ON messages(chat_id, timestamp)")
   }
 
-  def appendMessage(chatId: String, senderId: String, encrypted: Array[Byte], isImage: Boolean = false, imageHash: Option[String] = None): StoredMessage =
+  def appendMessage(
+      chatId: String,
+      senderId: String,
+      encrypted: Array[Byte],
+      isImage: Boolean = false,
+      imageHash: Option[String] = None
+  ): StoredMessage =
     withConn { conn =>
       val prev = lastHash(conn, chatId).getOrElse("genesis")
       val ts = System.currentTimeMillis()
@@ -121,7 +128,7 @@ class LocalStore(dbPath: String = "communicator.db") {
     var expectedPrev = "genesis"
     history.forall { msg =>
       val ok = msg.prevHash == expectedPrev &&
-               msg.contentHash == LocalStore.contentHash(msg.prevHash, msg.encryptedPayload, msg.timestamp)
+        msg.contentHash == LocalStore.contentHash(msg.prevHash, msg.encryptedPayload, msg.timestamp)
       expectedPrev = msg.contentHash
       ok
     }
