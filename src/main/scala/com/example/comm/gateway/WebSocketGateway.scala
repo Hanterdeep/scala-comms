@@ -42,7 +42,10 @@ object WebSocketGateway {
       }
     }
 
-  private def wsFlow(handler: ActorRef[Received])(implicit mat: Materializer, system: ActorSystem[_]): Flow[Message, Message, Any] = {
+  private def wsFlow(handler: ActorRef[Received])(implicit
+      mat: Materializer,
+      system: ActorSystem[_]
+  ): Flow[Message, Message, Any] = {
     val (outActor, outSource) =
       Source
         .actorRef[Message](
