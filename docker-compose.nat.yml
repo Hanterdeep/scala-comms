@@ -1,0 +1,143 @@
+# Multi-VM NAT test topology
+#
+#   [server] ---- public (172.20.0.0/16) ---- [nat-gw-a] ---- private-a (10.1.0.0/24) ---- [client-a]
+#                                     \---- [nat-gw-b] ---- private-b (10.2.0.0/24) ---- [client-b]
+#                                     \---- [nat-gw-c] ---- private-c (10.3.0.0/24) ---- [client-c]
+#
+# Each client is behind its own NAT gateway. Outbound UDP is masqueraded.
+# Inbound UDP (server -> client) requires hole punching or port forwarding.
+#
+# Obstacles via tc on the NAT gateways:
+#   - Client A: 50ms latency, 20ms jitter, 2% loss
+#   - Client B: 80ms latency, 30ms jitter, 5% loss
+#   - Client C: 120ms latency, 40ms jitter, 8% loss
+
+services:
+  server:
+    build: .
+    environment:
+      ROLE: server
+    networks:
+      public:
+        ipv4_address: 172.20.0.10
+    ports:
+      - "2551:2551"
+    command: ["java", "-jar", "/app/server.jar"]
+
+  nat-gw-a:
+    image: alpine:3.19
+    cap_add: [NET_ADMIN]
+    command: >
+      sh -c "
+        apk add --no-cache iptables iproute2 &&
+        echo 1 > /proc/sys/net/ipv4/ip_forward &&
+        iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE &&
+        iptables -A FORWARD -i eth1 -o eth0 -j ACCEPT &&
+        iptables -A FORWARD -i eth0 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT &&
+        tc qdisc add dev eth0 root netem delay 50ms 20ms loss 2% &&
+        sleep infinity
+      "
+    networks:
+      public:
+        ipv4_address: 172.20.0.100
+      private-a:
+        ipv4_address: 10.1.0.1
+
+  client-a:
+    build: .
+    environment:
+      ROLE: client
+      SEED_HOST: 172.20.0.10
+      SEED_PORT: "2551"
+      MY_PORT: "2552"
+    networks:
+      private-a:
+        ipv4_address: 10.1.0.10
+    depends_on: [nat-gw-a]
+    command: ["java", "-cp", "/app/client.jar", "com.example.comm.client.ClientApp", "172.20.0.10", "2551", "2552"]
+
+  nat-gw-b:
+    image: alpine:3.19
+    cap_add: [NET_ADMIN]
+    command: >
+      sh -c "
+        apk add --no-cache iptables iproute2 &&
+        echo 1 > /proc/sys/net/ipv4/ip_forward &&
+        iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE &&
+        iptables -A FORWARD -i eth1 -o eth0 -j ACCEPT &&
+        iptables -A FORWARD -i eth0 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT &&
+        tc qdisc add dev eth0 root netem delay 80ms 30ms loss 5% &&
+        sleep infinity
+      "
+    networks:
+      public:
+        ipv4_address: 172.20.0.101
+      private-b:
+        ipv4_address: 10.2.0.1
+
+  client-b:
+    build: .
+    environment:
+      ROLE: client
+      SEED_HOST: 172.20.0.10
+      SEED_PORT: "2551"
+      MY_PORT: "2553"
+    networks:
+      private-b:
+        ipv4_address: 10.2.0.10
+    depends_on: [nat-gw-b]
+    command: ["java", "-cp", "/app/client.jar", "com.example.comm.client.ClientApp", "172.20.0.10", "2551", "2553"]
+
+  nat-gw-c:
+    image: alpine:3.19
+    cap_add: [NET_ADMIN]
+    command: >
+      sh -c "
+        apk add --no-cache iptables iproute2 &&
+        echo 1 > /proc/sys/net/ipv4/ip_forward &&
+        iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE &&
+        iptables -A FORWARD -i eth1 -o eth0 -j ACCEPT &&
+        iptables -A FORWARD -i eth0 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT &&
+        tc qdisc add dev eth0 root netem delay 120ms 40ms loss 8% &&
+        sleep infinity
+      "
+    networks:
+      public:
+        ipv4_address: 172.20.0.102
+      private-c:
+        ipv4_address: 10.3.0.1
+
+  client-c:
+    build: .
+    environment:
+      ROLE: client
+      SEED_HOST: 172.20.0.10
+      SEED_PORT: "2551"
+      MY_PORT: "2554"
+    networks:
+      private-c:
+        ipv4_address: 10.3.0.10
+    depends_on: [nat-gw-c]
+    command: ["java", "-cp", "/app/client.jar", "com.example.comm.client.ClientApp", "172.20.0.10", "2551", "2554"]
+
+networks:
+  public:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+  private-a:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.1.0.0/24
+  private-b:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.2.0.0/24
+  private-c:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.3.0.0/24
