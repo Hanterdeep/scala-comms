@@ -2,43 +2,27 @@ package com.example.comm.client
 
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
+import java.net.InetSocketAddress
 
 class ConnectionStrategySpec extends AnyFlatSpec with Matchers {
 
-  class FakeMethod(val name: String, val priority: Int, rtt: Option[Long]) extends ConnectionMethod {
-    def probe(host: String, port: Int): Option[Long] = rtt
-    def connect(host: String, port: Int, system: akka.actor.typed.ActorSystem[_]): Unit = ()
+  "ConnectionStrategy" should "prefer UDP over TCP over WebSocket" in {
+    val udp = ConnectionStrategy.Candidate(new InetSocketAddress("1.1.1.1", 1), ConnectionStrategy.Udp, 50)
+    val tcp = ConnectionStrategy.Candidate(new InetSocketAddress("1.1.1.1", 2), ConnectionStrategy.Tcp, 10)
+    val ws = ConnectionStrategy.Candidate(new InetSocketAddress("1.1.1.1", 3), ConnectionStrategy.WebSocket, 5)
+    val chosen = ConnectionStrategy.selectWithPriority(Seq(ws, tcp, udp))
+    chosen.map(_.protocol) should be(Some(ConnectionStrategy.Udp))
   }
 
-  override def withFixture(test: NoArgTest) = {
-    ConnectionStrategy.clear()
-    try super.withFixture(test)
-    finally ConnectionStrategy.clear()
+  it should "pick lowest RTT within a protocol" in {
+    val a = ConnectionStrategy.Candidate(new InetSocketAddress("a", 1), ConnectionStrategy.Tcp, 100)
+    val b = ConnectionStrategy.Candidate(new InetSocketAddress("b", 1), ConnectionStrategy.Tcp, 20)
+    ConnectionStrategy.prefer(ConnectionStrategy.Tcp, Seq(a, b)).map(_.rttMs) should be(Some(20))
   }
 
-  "ConnectionStrategy" should "prefer lowest RTT" in {
-    ConnectionStrategy.register(new FakeMethod("slow", 1, Some(100)))
-    ConnectionStrategy.register(new FakeMethod("fast", 2, Some(10)))
-    val best = ConnectionStrategy.bestConnection(Seq(("host", 1)))
-    best.map(_._1.name) should be(Some("fast"))
-  }
-
-  it should "break ties by protocol priority" in {
-    ConnectionStrategy.register(new FakeMethod("udp", 1, Some(50)))
-    ConnectionStrategy.register(new FakeMethod("tcp", 2, Some(50)))
-    val best = ConnectionStrategy.bestConnection(Seq(("host", 1)))
-    best.map(_._1.name) should be(Some("udp"))
-  }
-
-  it should "skip methods that fail to probe" in {
-    ConnectionStrategy.register(new FakeMethod("bad", 1, None))
-    ConnectionStrategy.register(new FakeMethod("ok", 2, Some(20)))
-    val best = ConnectionStrategy.bestConnection(Seq(("host", 1)))
-    best.map(_._1.name) should be(Some("ok"))
-  }
-
-  it should "return None when no candidates succeed" in {
-    ConnectionStrategy.register(new FakeMethod("bad", 1, None))
-    ConnectionStrategy.bestConnection(Seq(("host", 1))) should be(None)
+  it should "fall back when preferred protocol is absent" in {
+    val tcp = ConnectionStrategy.Candidate(new InetSocketAddress("x", 1), ConnectionStrategy.Tcp, 30)
+    val chosen = ConnectionStrategy.selectWithPriority(Seq(tcp))
+    chosen.map(_.protocol) should be(Some(ConnectionStrategy.Tcp))
   }
 }
