@@ -6,7 +6,7 @@ import akka.cluster.ClusterEvent.{MemberEvent, MemberUp, MemberRemoved}
 import com.example.comm.cluster.ClusterBootstrap
 import com.example.comm.crypto.Crypto
 import com.example.comm.media.{MediaSessionManager, MediaMode}
-import com.example.comm.protocol.Protocol
+import com.example.comm.protocol.{Envelope, Protocol}
 import com.example.comm.storage.LocalStore
 import scala.util.Random
 
@@ -32,7 +32,19 @@ object ClientApp {
     system.log.info("Local store initialized (encrypted messages + images, hash-chained)")
 
     val media = new MediaSessionManager(system, myId)
-    system.log.info("MediaSessionManager ready (WebRTC, Opus + hardware video codecs, desktop capture)")
+    system.log.info("MediaSessionManager ready (real WebRTC peer connection, 1080p preferred)")
+
+    // Example: start a voice session; the resulting offer and ICE candidates become Protocol envelopes
+    // that the application sends over the chosen gateway / cluster transport.
+    val demoPeer = "demo-peer"
+    media.startSessionSignaled(
+      demoPeer,
+      MediaMode.Voice,
+      env =>
+        system.log.info(
+          s"Media signaling envelope: ${env.msgType} to ${env.recipientId.getOrElse("?")} (${env.payload.length} bytes)"
+        )
+    )
 
     val cluster = Cluster(system)
     cluster.subscriptions ! akka.cluster.typed.Subscribe(
