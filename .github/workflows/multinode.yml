@@ -1,0 +1,43 @@
+name: Multi-node integration
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  multinode:
+    name: Multi-VM (Docker) integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Build snapshot jars
+        run: |
+          export APP_VERSION="0.1.0-pr${{ github.event.pull_request.number || 'local' }}-SNAPSHOT"
+          sbt -batch assembly
+          sbt -batch "clientAssembly"
+
+      - name: Start multi-node environment
+        run: |
+          chmod +x scripts/multinode-test.sh
+          ./scripts/multinode-test.sh
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multinode-logs
+          path: |
+            target/*.jar
+          retention-days: 3

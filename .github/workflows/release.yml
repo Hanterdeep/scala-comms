@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    name: Snapshot artifacts
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Build snapshot jars
+        run: |
+          export APP_VERSION="0.1.0-${{ github.event.pull_request.number }}-SNAPSHOT"
+          sbt -batch assembly
+          sbt -batch "clientAssembly"
+          ls -la target/*.jar
+
+      - name: Upload snapshot artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-jars-pr-${{ github.event.pull_request.number }}
+          path: |
+            target/scala-communicator-server-*.jar
+            target/scala-communicator-client-*.jar
+          retention-days: 7
+
+  release:
+    name: Versioned release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Compute version
+        id: ver
+        run: |
+          if [[ "${{ github.event.head_commit.message }}" =~ v([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            echo "version=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+          else
+            echo "version=0.1.0+${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build versioned jars
+        run: |
+          export APP_VERSION="${{ steps.ver.outputs.version }}"
+          sbt -batch assembly
+          sbt -batch "clientAssembly"
+          mkdir -p dist
+          cp target/scala-communicator-server-*.jar dist/
+          cp target/scala-communicator-client-*.jar dist/
+          ls -la dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: Release v${{ steps.ver.outputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/scala-communicator-server-*.jar
+            dist/scala-communicator-client-*.jar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
