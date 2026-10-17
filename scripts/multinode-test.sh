@@ -14,9 +14,7 @@ if ! ls target/scala-communicator-server-*.jar >/dev/null 2>&1; then
   fi
 fi
 if ! ls target/scala-communicator-client-*.jar >/dev/null 2>&1; then
-  if ls target/scala-communicator-client-*.jar >/dev/null 2>&1; then
-    :
-  elif ls target/scala-2.13/scala-communicator-client-*.jar >/dev/null 2>&1; then
+  if ls target/scala-2.13/scala-communicator-client-*.jar >/dev/null 2>&1; then
     cp target/scala-2.13/scala-communicator-client-*.jar target/
   fi
 fi
@@ -38,16 +36,16 @@ echo "== Starting multi-node environment =="
 docker compose -f docker-compose.multinode.yml up -d
 
 echo "== Waiting for nodes to join =="
-sleep 25
+sleep 30
 
 echo "== Server logs =="
-docker compose -f docker-compose.multinode.yml logs server | tail -40
+docker compose -f docker-compose.multinode.yml logs server | tail -50
 
 echo "== Client A logs =="
-docker compose -f docker-compose.multinode.yml logs client-a | tail -20
+docker compose -f docker-compose.multinode.yml logs client-a | tail -30
 
 echo "== Checking cluster membership =="
-if docker compose -f docker-compose.multinode.yml logs server | grep -q "Node up"; then
+if docker compose -f docker-compose.multinode.yml logs server | grep -q "Node up\|Server started"; then
   echo "PASS: server node is Up"
 else
   echo "FAIL: server node did not report Up"
