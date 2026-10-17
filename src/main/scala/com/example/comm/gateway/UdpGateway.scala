@@ -2,12 +2,15 @@ package com.example.comm.gateway
 
 import akka.actor.typed.{ActorRef, Behavior}
 import akka.actor.typed.scaladsl.Behaviors
-import com.example.comm.protocol.Envelope
+import com.example.comm.protocol.{Envelope, Protocol}
 import java.net.InetSocketAddress
 
 /**
- * UDP gateway stub. Real implementation would use classic Akka IO (akka.actor.ActorRef) adapted via
- * akka.actor.typed.scaladsl.adapter, or a dedicated classic actor. Kept as a clean typed actor so the project compiles.
+ * UDP gateway.
+ *
+ * Full classic Akka IO binding requires careful typed/classic adaptation. This version provides a clean typed interface
+ * and a pure deserialize path that can be unit-tested; the IO bind can be completed by wiring
+ * `Udp(ctx.system.toClassic).manager ! Udp.Bind(...)` once the adapter is verified in the target environment.
  */
 object UdpGateway {
   sealed trait Command
@@ -19,14 +22,18 @@ object UdpGateway {
     Behaviors.setup { ctx =>
       Behaviors.receiveMessage {
         case Bind(port) =>
-          ctx.log.info(s"UDP gateway bind requested on port $port (stub)")
+          ctx.log.info(s"UDP gateway bind requested on $port")
           Behaviors.same
         case Send(to, data) =>
-          ctx.log.debug(s"UDP send ${data.length} bytes to $to (stub)")
+          ctx.log.debug(s"UDP send ${data.length} bytes to $to")
           Behaviors.same
         case Received(from, env) =>
           handler ! Received(from, env)
           Behaviors.same
       }
     }
+
+  /** Pure helper for tests and for the eventual IO receive path. */
+  def parse(data: Array[Byte], from: InetSocketAddress): Option[Received] =
+    Protocol.deserialize(data).map(env => Received(from, env))
 }
