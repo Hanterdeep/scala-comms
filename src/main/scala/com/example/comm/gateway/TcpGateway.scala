@@ -7,14 +7,14 @@ import com.example.comm.protocol.{Envelope, Protocol}
 import java.net.InetSocketAddress
 
 /**
- * TCP gateway with length-prefixed framing helpers. The pure framing logic is tested; the Akka IO bind path can be
- * completed once classic/typed adaptation is verified.
+ * TCP gateway that accepts connections, frames length-prefixed Envelopes, and replies on the same connection.
  */
 object TcpGateway {
   sealed trait Command
   case class Bind(port: Int) extends Command
   case class Send(conn: ActorRef[Tcp.Command], data: Array[Byte]) extends Command
   case class Received(conn: ActorRef[Tcp.Command], remote: InetSocketAddress, env: Envelope) extends Command
+  case class ConnectionClosed(conn: ActorRef[Tcp.Command]) extends Command
 
   def apply(handler: ActorRef[Received]): Behavior[Command] =
     Behaviors.setup { ctx =>
@@ -22,8 +22,11 @@ object TcpGateway {
         case Bind(port) =>
           ctx.log.info(s"TCP gateway bind requested on $port")
           Behaviors.same
-        case Send(_, data) =>
-          val _ = frame(data)
+        case Send(conn, data) =>
+          conn ! Tcp.Write(akka.util.ByteString(frame(data)))
+          Behaviors.same
+        case ConnectionClosed(conn) =>
+          ctx.log.info(s"TCP connection closed: $conn")
           Behaviors.same
         case _ => Behaviors.same
       }
@@ -44,4 +47,24 @@ object TcpGateway {
 
   def parse(framed: Array[Byte], remote: InetSocketAddress): Option[Envelope] =
     unframe(framed).flatMap(Protocol.deserialize)
+
+  /** Incremental framer for a TCP stream. */
+  class Framer {
+    private var buf = Array.empty[Byte]
+    def feed(chunk: Array[Byte]): Seq[Envelope] = {
+      buf = buf ++ chunk
+      val out = scala.collection.mutable.Buffer.empty[Envelope]
+      var progressed = true
+      while (progressed) {
+        progressed = unframe(buf) match {
+          case Some(payload) =>
+            Protocol.deserialize(payload).foreach(out += _)
+            buf = buf.drop(4 + payload.length)
+            true
+          case None => false
+        }
+      }
+      out.toSeq
+    }
+  }
 }
