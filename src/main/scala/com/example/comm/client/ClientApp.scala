@@ -10,55 +10,6 @@ import com.example.comm.protocol.Protocol
 import com.example.comm.storage.LocalStore
 import scala.util.Random
 
-trait ConnectionMethod {
-  def name: String
-  def priority: Int
-  def probe(host: String, port: Int): Option[Long]
-  def connect(host: String, port: Int, system: ActorSystem[_]): Unit
-}
-
-object ConnectionStrategy {
-  private val methods = scala.collection.mutable.ListBuffer[ConnectionMethod]()
-
-  def register(method: ConnectionMethod): Unit = {
-    methods += method
-    methods.sortBy(_.priority)
-  }
-
-  def bestConnection(candidates: Seq[(String, Int)]): Option[(ConnectionMethod, String, Int, Long)] = {
-    val scored = for {
-      (host, port) <- candidates
-      method <- methods
-      rtt <- method.probe(host, port)
-    } yield (method, host, port, rtt)
-    scored.minByOption(_._4)
-  }
-}
-
-object UdpMethod extends ConnectionMethod {
-  def name = "udp"
-  def priority = 1
-  def probe(host: String, port: Int): Option[Long] = Some(Random.between(5, 40).toLong)
-  def connect(host: String, port: Int, system: ActorSystem[_]): Unit =
-    system.log.info(s"Connecting via UDP to $host:$port")
-}
-
-object TcpMethod extends ConnectionMethod {
-  def name = "tcp"
-  def priority = 2
-  def probe(host: String, port: Int): Option[Long] = Some(Random.between(10, 60).toLong)
-  def connect(host: String, port: Int, system: ActorSystem[_]): Unit =
-    system.log.info(s"Connecting via TCP to $host:$port")
-}
-
-object WebSocketMethod extends ConnectionMethod {
-  def name = "websocket"
-  def priority = 3
-  def probe(host: String, port: Int): Option[Long] = Some(Random.between(20, 100).toLong)
-  def connect(host: String, port: Int, system: ActorSystem[_]): Unit =
-    system.log.info(s"Connecting via WebSocket to $host:$port")
-}
-
 object ClientApp {
   def main(args: Array[String]): Unit = {
     val seedHost = if (args.length > 0) args(0) else "127.0.0.1"
