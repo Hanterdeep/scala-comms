@@ -1,76 +1,65 @@
 package com.example.comm.client
 
 import akka.actor.typed.ActorSystem
-import scala.util.Try
-import java.net.{InetSocketAddress, Socket}
-import scala.concurrent.duration._
+import akka.cluster.typed.Cluster
+import java.net.{InetAddress, InetSocketAddress}
+import java.util.concurrent.ConcurrentHashMap
+import scala.concurrent.{ExecutionContext, Future}
 
-trait ConnectionMethod {
-  def name: String
-  def priority: Int
-  def probe(host: String, port: Int): Option[Long]
-  def connect(host: String, port: Int, system: ActorSystem[_]): Unit
-}
-
+/**
+ * Measures real RTT to cluster members and selects the nearest node with protocol priority UDP > TCP > WebSocket.
+ */
 object ConnectionStrategy {
-  private val methods = scala.collection.mutable.ListBuffer[ConnectionMethod]()
+  sealed trait ProtocolPriority
+  case object Udp extends ProtocolPriority
+  case object Tcp extends ProtocolPriority
+  case object WebSocket extends ProtocolPriority
 
-  def register(method: ConnectionMethod): Unit = {
-    methods += method
-    methods.sortBy(_.priority)
+  case class Candidate(address: InetSocketAddress, protocol: ProtocolPriority, rttMs: Long)
+
+  private val measurements = new ConcurrentHashMap[String, Long]()
+
+  def probe(host: String, port: Int, timeoutMs: Int = 500)(implicit ec: ExecutionContext): Future[Long] = {
+    val start = System.nanoTime()
+    Future {
+      val addr = InetAddress.getByName(host)
+      val reachable = addr.isReachable(timeoutMs)
+      val elapsed = (System.nanoTime() - start) / 1000000
+      if (reachable) elapsed else timeoutMs.toLong
+    }
   }
 
-  def clear(): Unit = methods.clear()
-
-  def registered: Seq[ConnectionMethod] = methods.toSeq
-
-  /** Select best connection: lowest RTT, then protocol priority. */
-  def bestConnection(candidates: Seq[(String, Int)]): Option[(ConnectionMethod, String, Int, Long)] = {
-    val scored = for {
-      (host, port) <- candidates
-      method <- methods
-      rtt <- method.probe(host, port)
-    } yield (method, host, port, rtt)
-    if (scored.isEmpty) None
-    else Some(scored.minBy { case (m, _, _, rtt) => (rtt, m.priority) })
+  def selectNearest(
+      seed: InetSocketAddress,
+      members: Seq[InetSocketAddress],
+      protocol: ProtocolPriority
+  )(implicit system: ActorSystem[_], ec: ExecutionContext): Future[Candidate] = {
+    val candidates = (seed +: members).distinct
+    val probes = candidates.map { addr =>
+      probe(addr.getHostString, addr.getPort).map { rtt =>
+        measurements.put(s"${addr.getHostString}:${addr.getPort}", rtt)
+        Candidate(addr, protocol, rtt)
+      }.recover { case _ => Candidate(addr, protocol, Long.MaxValue) }
+    }
+    Future.sequence(probes).map { list =>
+      list.minBy(_.rttMs)
+    }
   }
-}
 
-/** TCP connect-time probe (real RTT). */
-object TcpMethod extends ConnectionMethod {
-  def name = "tcp"
-  def priority = 2
-  def probe(host: String, port: Int): Option[Long] =
-    Try {
-      val start = System.nanoTime()
-      val s = new Socket()
-      s.connect(new InetSocketAddress(host, port), 500)
-      val rtt = (System.nanoTime() - start) / 1000000L
-      s.close()
-      rtt
-    }.toOption
+  def prefer(protocol: ProtocolPriority, candidates: Seq[Candidate]): Option[Candidate] =
+    candidates.filter(_.protocol == protocol).sortBy(_.rttMs).headOption
 
-  def connect(host: String, port: Int, system: ActorSystem[_]): Unit =
-    system.log.info(s"Connecting via TCP to $host:$port")
-}
+  def selectWithPriority(candidates: Seq[Candidate]): Option[Candidate] =
+    prefer(Udp, candidates).orElse(prefer(Tcp, candidates)).orElse(prefer(WebSocket, candidates))
 
-/** UDP probe via a short TCP fallback or timeout-based estimate. */
-object UdpMethod extends ConnectionMethod {
-  def name = "udp"
-  def priority = 1
-  def probe(host: String, port: Int): Option[Long] =
-    TcpMethod.probe(host, port).map(_ + 2)
-
-  def connect(host: String, port: Int, system: ActorSystem[_]): Unit =
-    system.log.info(s"Connecting via UDP to $host:$port")
-}
-
-object WebSocketMethod extends ConnectionMethod {
-  def name = "websocket"
-  def priority = 3
-  def probe(host: String, port: Int): Option[Long] =
-    TcpMethod.probe(host, port).map(_ + 10)
-
-  def connect(host: String, port: Int, system: ActorSystem[_]): Unit =
-    system.log.info(s"Connecting via WebSocket to $host:$port")
+  def membersFromCluster()(implicit system: ActorSystem[_]): Seq[InetSocketAddress] = {
+    val cluster = Cluster(system)
+    cluster.state.members.toSeq.flatMap { m =>
+      val addr = m.address
+      for {
+        host <- addr.host
+        port <- addr.port
+      } yield new InetSocketAddress(host, port)
+    }
+  }
 }
