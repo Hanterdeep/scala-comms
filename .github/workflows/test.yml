@@ -1,0 +1,38 @@
+name: Tests
+
+on:
+  workflow_run:
+    workflows: ["Format check"]
+    types: [completed]
+    branches: [ main, feature/** ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: sbt test
+    runs-on: ubuntu-latest
+    # Only run tests if the format workflow succeeded (or if this is a direct PR event)
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: sbt
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Run tests
+        run: sbt test
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: target/test-reports/
