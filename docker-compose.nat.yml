@@ -4,10 +4,8 @@
 #                                     \---- [nat-gw-b] ---- private-b (10.20.0.0/24) ---- [client-b]
 #                                     \---- [nat-gw-c] ---- private-c (10.30.0.0/24) ---- [client-c]
 #
-# Obstacles via tc on the NAT gateways:
-#   - Client A: 50ms latency, 20ms jitter, 2% loss
-#   - Client B: 80ms latency, 30ms jitter, 5% loss
-#   - Client C: 120ms latency, 40ms jitter, 8% loss
+# NAT gateways use .2 (Docker reserves .1 for the bridge).
+# Clients replace their default route to go via the NAT gateway.
 
 services:
   server:
@@ -32,17 +30,18 @@ services:
         iptables -A FORWARD -s 10.10.0.0/24 -j ACCEPT &&
         iptables -A FORWARD -d 10.10.0.0/24 -m state --state RELATED,ESTABLISHED -j ACCEPT &&
         PUBIF=$$(ip -o addr show | awk '/172.30/ {print $$2}') &&
-        tc qdisc add dev $$PUBIF root netem delay 50ms 20ms loss 2% || true &&
+        [ -n \"$$PUBIF\" ] && tc qdisc add dev $$PUBIF root netem delay 50ms 20ms loss 2% || true &&
         sleep infinity
       "
     networks:
       public:
         ipv4_address: 172.30.0.100
       private-a:
-        ipv4_address: 10.10.0.1
+        ipv4_address: 10.10.0.2
 
   client-a:
     build: .
+    cap_add: [NET_ADMIN]
     environment:
       ROLE: client
       SEED_HOST: 172.30.0.10
@@ -52,7 +51,13 @@ services:
       private-a:
         ipv4_address: 10.10.0.10
     depends_on: [nat-gw-a]
-    command: ["java", "-cp", "/app/client.jar", "com.example.comm.client.ClientApp", "172.30.0.10", "2551", "2552"]
+    command:
+      - sh
+      - -c
+      - |
+        ip route del default || true
+        ip route add default via 10.10.0.2
+        exec java -cp /app/client.jar com.example.comm.client.ClientApp 172.30.0.10 2551 2552
 
   nat-gw-b:
     image: alpine:3.19
@@ -65,17 +70,18 @@ services:
         iptables -A FORWARD -s 10.20.0.0/24 -j ACCEPT &&
         iptables -A FORWARD -d 10.20.0.0/24 -m state --state RELATED,ESTABLISHED -j ACCEPT &&
         PUBIF=$$(ip -o addr show | awk '/172.30/ {print $$2}') &&
-        tc qdisc add dev $$PUBIF root netem delay 80ms 30ms loss 5% || true &&
+        [ -n \"$$PUBIF\" ] && tc qdisc add dev $$PUBIF root netem delay 80ms 30ms loss 5% || true &&
         sleep infinity
       "
     networks:
       public:
         ipv4_address: 172.30.0.101
       private-b:
-        ipv4_address: 10.20.0.1
+        ipv4_address: 10.20.0.2
 
   client-b:
     build: .
+    cap_add: [NET_ADMIN]
     environment:
       ROLE: client
       SEED_HOST: 172.30.0.10
@@ -85,7 +91,13 @@ services:
       private-b:
         ipv4_address: 10.20.0.10
     depends_on: [nat-gw-b]
-    command: ["java", "-cp", "/app/client.jar", "com.example.comm.client.ClientApp", "172.30.0.10", "2551", "2553"]
+    command:
+      - sh
+      - -c
+      - |
+        ip route del default || true
+        ip route add default via 10.20.0.2
+        exec java -cp /app/client.jar com.example.comm.client.ClientApp 172.30.0.10 2551 2553
 
   nat-gw-c:
     image: alpine:3.19
@@ -98,17 +110,18 @@ services:
         iptables -A FORWARD -s 10.30.0.0/24 -j ACCEPT &&
         iptables -A FORWARD -d 10.30.0.0/24 -m state --state RELATED,ESTABLISHED -j ACCEPT &&
         PUBIF=$$(ip -o addr show | awk '/172.30/ {print $$2}') &&
-        tc qdisc add dev $$PUBIF root netem delay 120ms 40ms loss 8% || true &&
+        [ -n \"$$PUBIF\" ] && tc qdisc add dev $$PUBIF root netem delay 120ms 40ms loss 8% || true &&
         sleep infinity
       "
     networks:
       public:
         ipv4_address: 172.30.0.102
       private-c:
-        ipv4_address: 10.30.0.1
+        ipv4_address: 10.30.0.2
 
   client-c:
     build: .
+    cap_add: [NET_ADMIN]
     environment:
       ROLE: client
       SEED_HOST: 172.30.0.10
@@ -118,7 +131,13 @@ services:
       private-c:
         ipv4_address: 10.30.0.10
     depends_on: [nat-gw-c]
-    command: ["java", "-cp", "/app/client.jar", "com.example.comm.client.ClientApp", "172.30.0.10", "2551", "2554"]
+    command:
+      - sh
+      - -c
+      - |
+        ip route del default || true
+        ip route add default via 10.30.0.2
+        exec java -cp /app/client.jar com.example.comm.client.ClientApp 172.30.0.10 2551 2554
 
 networks:
   public:
@@ -126,22 +145,18 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/16
-          gateway: 172.30.0.1
   private-a:
     driver: bridge
     ipam:
       config:
         - subnet: 10.10.0.0/24
-          gateway: 10.10.0.1
   private-b:
     driver: bridge
     ipam:
       config:
         - subnet: 10.20.0.0/24
-          gateway: 10.20.0.1
   private-c:
     driver: bridge
     ipam:
       config:
         - subnet: 10.30.0.0/24
-          gateway: 10.30.0.1
