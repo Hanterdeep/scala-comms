@@ -4,6 +4,7 @@ ThisBuild / organization := "com.example"
 
 val AkkaVersion = "2.8.8"
 val AkkaHttpVersion = "10.5.3"
+val ScalaTestVersion = "3.2.19"
 
 lazy val root = (project in file("."))
   .settings(
@@ -18,7 +19,8 @@ lazy val root = (project in file("."))
       "org.bouncycastle" % "bcprov-jdk18on" % "1.78.1",
       "org.bouncycastle" % "bcpkix-jdk18on" % "1.78.1",
       "org.xerial" % "sqlite-jdbc" % "3.46.0.0",
-      "dev.onvoid.webrtc" % "webrtc-java" % "0.14.0"
+      "dev.onvoid.webrtc" % "webrtc-java" % "0.14.0",
+      "org.scalatest" %% "scalatest" % ScalaTestVersion % Test
     ),
     resolvers += "Akka library repository" at "https://repo.akka.io/maven"
   )
