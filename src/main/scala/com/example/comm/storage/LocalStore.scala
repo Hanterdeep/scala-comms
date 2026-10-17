@@ -1,44 +1,39 @@
 package com.example.comm.storage
 
-import com.example.comm.crypto.Crypto
 import java.security.MessageDigest
-import java.sql.{Connection, DriverManager, PreparedStatement, ResultSet}
+import java.sql.{Connection, DriverManager}
 import java.util.UUID
-import scala.util.Try
 
-/**
- * Local encrypted store + verifiable hash-chain history.
- * Each message links to the previous one via hash; clients can recompute
- * and verify that no message in the chain was altered or deleted.
- * Images are stored as encrypted blobs addressed by content hash.
- */
 case class StoredMessage(
   id: String,
-  chatId: String,          // peer id or group id
+  chatId: String,
   senderId: String,
   encryptedPayload: Array[Byte],
-  prevHash: String,        // hex SHA-256 of previous message (or "genesis")
-  contentHash: String,     // hex SHA-256 of (prevHash + encryptedPayload + timestamp)
+  prevHash: String,
+  contentHash: String,
   timestamp: Long,
   isImage: Boolean = false,
   imageContentHash: Option[String] = None
 )
 
-object LocalStore:
+object LocalStore {
   def sha256Hex(data: Array[Byte]): String =
     MessageDigest.getInstance("SHA-256").digest(data).map("%02x".format(_)).mkString
 
-  def contentHash(prevHash: String, payload: Array[Byte], ts: Long): String =
+  def contentHash(prevHash: String, payload: Array[Byte], ts: Long): String = {
     val combined = (prevHash + ":" + ts).getBytes("UTF-8") ++ payload
     sha256Hex(combined)
+  }
+}
 
-class LocalStore(dbPath: String = "communicator.db"):
+class LocalStore(dbPath: String = "communicator.db") {
   private val url = s"jdbc:sqlite:$dbPath"
   Class.forName("org.sqlite.JDBC")
 
-  private def withConn[T](f: Connection => T): T =
+  private def withConn[T](f: Connection => T): T = {
     val conn = DriverManager.getConnection(url)
     try f(conn) finally conn.close()
+  }
 
   def init(): Unit = withConn { conn =>
     val stmt = conn.createStatement()
@@ -82,19 +77,20 @@ class LocalStore(dbPath: String = "communicator.db"):
       ps.setString(5, prev)
       ps.setString(6, cHash)
       ps.setLong(7, ts)
-      ps.setInt(8, if isImage then 1 else 0)
+      ps.setInt(8, if (isImage) 1 else 0)
       ps.setString(9, imageHash.orNull)
       ps.executeUpdate()
       StoredMessage(id, chatId, senderId, encrypted, prev, cHash, ts, isImage, imageHash)
     }
 
-  def lastHash(conn: Connection, chatId: String): Option[String] =
+  def lastHash(conn: Connection, chatId: String): Option[String] = {
     val ps = conn.prepareStatement(
       "SELECT content_hash FROM messages WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 1"
     )
     ps.setString(1, chatId)
     val rs = ps.executeQuery()
-    if rs.next() then Some(rs.getString(1)) else None
+    if (rs.next()) Some(rs.getString(1)) else None
+  }
 
   def loadHistory(chatId: String): Seq[StoredMessage] = withConn { conn =>
     val ps = conn.prepareStatement(
@@ -103,7 +99,7 @@ class LocalStore(dbPath: String = "communicator.db"):
     ps.setString(1, chatId)
     val rs = ps.executeQuery()
     val buf = scala.collection.mutable.ArrayBuffer.empty[StoredMessage]
-    while rs.next() do
+    while (rs.next()) {
       buf += StoredMessage(
         rs.getString("id"),
         rs.getString("chat_id"),
@@ -115,17 +111,13 @@ class LocalStore(dbPath: String = "communicator.db"):
         rs.getInt("is_image") == 1,
         Option(rs.getString("image_content_hash"))
       )
+    }
     buf.toSeq
   }
 
-  /**
-   * Validates the entire chain for a chat.
-   * Returns true only if every message's contentHash matches the recomputed
-   * hash and links correctly to the previous message. Detects tampering or deletion.
-   */
-  def validateHistory(chatId: String): Boolean =
+  def validateHistory(chatId: String): Boolean = {
     val history = loadHistory(chatId)
-    if history.isEmpty then return true
+    if (history.isEmpty) return true
     var expectedPrev = "genesis"
     history.forall { msg =>
       val ok = msg.prevHash == expectedPrev &&
@@ -133,8 +125,9 @@ class LocalStore(dbPath: String = "communicator.db"):
       expectedPrev = msg.contentHash
       ok
     }
+  }
 
-  def storeImage(encryptedBlob: Array[Byte], mime: String = "application/octet-stream"): String =
+  def storeImage(encryptedBlob: Array[Byte], mime: String = "application/octet-stream"): String = {
     val hash = LocalStore.sha256Hex(encryptedBlob)
     withConn { conn =>
       val ps = conn.prepareStatement(
@@ -146,10 +139,12 @@ class LocalStore(dbPath: String = "communicator.db"):
       ps.executeUpdate()
     }
     hash
+  }
 
   def loadImage(contentHash: String): Option[Array[Byte]] = withConn { conn =>
     val ps = conn.prepareStatement("SELECT encrypted_blob FROM images WHERE content_hash = ?")
     ps.setString(1, contentHash)
     val rs = ps.executeQuery()
-    if rs.next() then Some(rs.getBytes(1)) else None
+    if (rs.next()) Some(rs.getBytes(1)) else None
   }
+}
