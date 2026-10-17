@@ -1,6 +1,7 @@
 FROM eclipse-temurin:21-jre-jammy
 
 WORKDIR /app
+# Jars may land in target/ or target/scala-2.13/ depending on sbt settings
 COPY target/scala-communicator-server-*.jar /app/server.jar
 COPY target/scala-communicator-client-*.jar /app/client.jar
 

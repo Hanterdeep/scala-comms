@@ -32,15 +32,16 @@ jobs:
           export APP_VERSION="0.1.0-${{ github.event.pull_request.number }}-SNAPSHOT"
           sbt -batch assembly
           sbt -batch "clientAssembly"
-          ls -la target/*.jar
+          mkdir -p dist
+          cp target/scala-2.13/scala-communicator-server-*.jar dist/ || true
+          cp target/scala-communicator-client-*.jar dist/ || true
+          ls -la dist/
 
       - name: Upload snapshot artifacts
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-jars-pr-${{ github.event.pull_request.number }}
-          path: |
-            target/scala-communicator-server-*.jar
-            target/scala-communicator-client-*.jar
+          path: dist/*.jar
           retention-days: 7
 
   release:
@@ -66,7 +67,7 @@ jobs:
           if [[ "${{ github.event.head_commit.message }}" =~ v([0-9]+\.[0-9]+\.[0-9]+) ]]; then
             echo "version=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
           else
-            echo "version=0.1.0+${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+            echo "version=0.1.0.${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
           fi
 
       - name: Build versioned jars
@@ -75,7 +76,7 @@ jobs:
           sbt -batch assembly
           sbt -batch "clientAssembly"
           mkdir -p dist
-          cp target/scala-communicator-server-*.jar dist/
+          cp target/scala-2.13/scala-communicator-server-*.jar dist/
           cp target/scala-communicator-client-*.jar dist/
           ls -la dist/
 

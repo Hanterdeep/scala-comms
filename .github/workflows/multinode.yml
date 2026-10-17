@@ -27,6 +27,9 @@ jobs:
           export APP_VERSION="0.1.0-pr${{ github.event.pull_request.number || 'local' }}-SNAPSHOT"
           sbt -batch assembly
           sbt -batch "clientAssembly"
+          mkdir -p target
+          cp target/scala-2.13/scala-communicator-server-*.jar target/ || true
+          ls -la target/*.jar target/scala-2.13/*.jar || true
 
       - name: Start multi-node environment
         run: |
@@ -40,4 +43,5 @@ jobs:
           name: multinode-logs
           path: |
             target/*.jar
+            target/scala-2.13/*.jar
           retention-days: 3
