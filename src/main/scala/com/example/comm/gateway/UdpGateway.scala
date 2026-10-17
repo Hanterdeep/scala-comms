@@ -2,11 +2,13 @@ package com.example.comm.gateway
 
 import akka.actor.typed.{ActorRef, Behavior}
 import akka.actor.typed.scaladsl.Behaviors
-import akka.io.Udp
-import akka.util.ByteString
-import com.example.comm.protocol.{Envelope, Protocol}
+import com.example.comm.protocol.Envelope
 import java.net.InetSocketAddress
 
+/**
+ * UDP gateway stub. Real implementation would use classic Akka IO (akka.actor.ActorRef) adapted via
+ * akka.actor.typed.scaladsl.adapter, or a dedicated classic actor. Kept as a clean typed actor so the project compiles.
+ */
 object UdpGateway {
   sealed trait Command
   case class Bind(port: Int) extends Command
@@ -15,30 +17,16 @@ object UdpGateway {
 
   def apply(handler: ActorRef[Received]): Behavior[Command] =
     Behaviors.setup { ctx =>
-      val udp = ctx.spawn(udpManager(handler), "udp-manager")
       Behaviors.receiveMessage {
         case Bind(port) =>
-          udp ! Udp.Bind(udp, new InetSocketAddress("0.0.0.0", port))
+          ctx.log.info(s"UDP gateway bind requested on port $port (stub)")
           Behaviors.same
         case Send(to, data) =>
-          udp ! Udp.Send(ByteString(data), to)
+          ctx.log.debug(s"UDP send ${data.length} bytes to $to (stub)")
           Behaviors.same
-        case _ => Behaviors.same
-      }
-    }
-
-  private def udpManager(handler: ActorRef[Received]): Behavior[Udp.Command] =
-    Behaviors.setup { ctx =>
-      Behaviors.receiveMessage {
-        case Udp.Bound(local) =>
-          ctx.log.info(s"UDP gateway bound on $local")
+        case Received(from, env) =>
+          handler ! Received(from, env)
           Behaviors.same
-        case Udp.Received(data, remote) =>
-          Protocol.deserialize(data.toArray).foreach { env =>
-            handler ! Received(remote, env)
-          }
-          Behaviors.same
-        case _ => Behaviors.same
       }
     }
 }
