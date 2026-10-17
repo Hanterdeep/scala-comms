@@ -19,21 +19,30 @@ object MessageType {
   case object MediaStop extends MessageType
 
   val values: Array[MessageType] = Array(
-    HandshakeInit, HandshakeResp, Chat, GroupChat, Ping, Pong, Relay,
-    MediaOffer, MediaAnswer, MediaIce, MediaStop
+    HandshakeInit,
+    HandshakeResp,
+    Chat,
+    GroupChat,
+    Ping,
+    Pong,
+    Relay,
+    MediaOffer,
+    MediaAnswer,
+    MediaIce,
+    MediaStop
   )
 
   def fromOrdinal(i: Int): MessageType = values(i)
 }
 
 final case class Envelope(
-  msgType: MessageType,
-  senderId: String,
-  recipientId: Option[String],
-  groupId: Option[String],
-  payload: Array[Byte],
-  signature: Option[Array[Byte]] = None,
-  timestamp: Long = System.currentTimeMillis()
+    msgType: MessageType,
+    senderId: String,
+    recipientId: Option[String],
+    groupId: Option[String],
+    payload: Array[Byte],
+    signature: Option[Array[Byte]] = None,
+    timestamp: Long = System.currentTimeMillis()
 )
 
 object Protocol {

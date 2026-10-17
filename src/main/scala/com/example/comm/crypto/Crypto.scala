@@ -2,7 +2,11 @@ package com.example.comm.crypto
 
 import org.bouncycastle.crypto.agreement.X25519Agreement
 import org.bouncycastle.crypto.generators.X25519KeyPairGenerator
-import org.bouncycastle.crypto.params.{X25519KeyGenerationParameters, X25519PrivateKeyParameters, X25519PublicKeyParameters}
+import org.bouncycastle.crypto.params.{
+  X25519KeyGenerationParameters,
+  X25519PrivateKeyParameters,
+  X25519PublicKeyParameters
+}
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.security.{SecureRandom, Security}
 import javax.crypto.Cipher
@@ -31,7 +35,11 @@ object Crypto {
     shared
   }
 
-  def aesGcmEncrypt(key: Array[Byte], plaintext: Array[Byte], aad: Array[Byte] = Array.empty): (Array[Byte], Array[Byte]) = {
+  def aesGcmEncrypt(
+      key: Array[Byte],
+      plaintext: Array[Byte],
+      aad: Array[Byte] = Array.empty
+  ): (Array[Byte], Array[Byte]) = {
     val cipher = Cipher.getInstance("AES/GCM/NoPadding", "BC")
     val secretKey = new SecretKeySpec(key.take(32), "AES")
     val iv = new Array[Byte](12)
@@ -42,7 +50,12 @@ object Crypto {
     (iv, ciphertext)
   }
 
-  def aesGcmDecrypt(key: Array[Byte], iv: Array[Byte], ciphertext: Array[Byte], aad: Array[Byte] = Array.empty): Try[Array[Byte]] =
+  def aesGcmDecrypt(
+      key: Array[Byte],
+      iv: Array[Byte],
+      ciphertext: Array[Byte],
+      aad: Array[Byte] = Array.empty
+  ): Try[Array[Byte]] =
     Try {
       val cipher = Cipher.getInstance("AES/GCM/NoPadding", "BC")
       val secretKey = new SecretKeySpec(key.take(32), "AES")
@@ -52,5 +65,7 @@ object Crypto {
     }
 
   def fingerprint(pubKey: Array[Byte]): String =
-    java.util.Base64.getEncoder.encodeToString(java.security.MessageDigest.getInstance("SHA-256").digest(pubKey)).take(16)
+    java.util.Base64.getEncoder.encodeToString(java.security.MessageDigest.getInstance("SHA-256").digest(pubKey)).take(
+      16
+    )
 }
